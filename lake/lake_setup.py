@@ -68,42 +68,40 @@ def load_meta_json(global_context: GlobalContext):
 
 
 def create_tree_dir(global_context, parent_path, book):
-    """
-    根据解析出的关系创建文档的目录树
-    :param parent_path: 输出目录的根路径
-    :param book: 当前book对象
-    :param global_context 上下文
-    :return:
-    """
     if book is None:
         return
     uuid = book['uuid']
     name = book['title']
     file_url = book['url']
+    
+    # 统一使用 os.path.join 进行路径拼接
     if not os.path.exists(parent_path):
-        parent_path = parent_path.replace("/", os.path.sep)
+        parent_path = os.path.normpath(parent_path)  # 规范化路径
         parent_path = remove_invalid_characters(parent_path)
         os.makedirs(parent_path, exist_ok=True)
+    
     book_children = global_context.parent_id_and_child.get(uuid)
     global_context.all_file_count += 1
+    
     if file_url != '':
-        ltm = LakeToMd("{}/{}.json".format(global_context.root_path, file_url), target="/".join([parent_path, name]))
+        # 使用 os.path.join 替代字符串拼接
+        json_path = os.path.join(global_context.root_path, f"{file_url}.json")
+        # 修改这里：直接使用parent_path作为目标路径，避免重复创建目录
+        target_path = parent_path
+        
+        ltm = LakeToMd(json_path, target=target_path)
         ltm.to_md(global_context)
         global_context.failure_image_download_list += ltm.image_download_failure
         global_context.file_count += 1
-        # print("\r", end="")
-        # i = (file_count // file_total) * 100
-        print("\rprocess progress: {}/{}/{}. ".format(global_context.file_count, global_context.all_file_count,
-                                                      global_context.file_total), end="")
-        # sys.stdout.flush()
-        # time.sleep(0.05)
+        print(f"\rprocess progress: {global_context.file_count}/{global_context.all_file_count}/{global_context.file_total}. ", end="")
+    
     if not book_children:
         return
+    
     for child in book_children:
-        seg = [x for x in parent_path.split("/")]
-        seg.append(child['title'])
-        create_tree_dir(global_context, "/".join(seg), child)
-
+        # 修改这里：直接使用parent_path作为子目录的父路径
+        child_path = parent_path
+        create_tree_dir(global_context, child_path, child)
 
 class LakeToMd:
     body_html = None
@@ -123,14 +121,13 @@ class LakeToMd:
 
     def to_md(self, global_context):
         mp = MyParser(self.body_html)
-        name = self.target.split("/")[-1]
-        last_index = self.target.rindex("/")
-        short_target = self.target[:last_index]
-        context = MyContext(filename=name, image_target=short_target, download_image=global_context.download_image)
+        # 修改这里：直接从文件名中获取标题
+        name = os.path.basename(self.filename).replace('.json', '')
+        context = MyContext(filename=name, image_target=self.target, download_image=global_context.download_image)
         res = mp.handle_descent(mp.soup, context)
         self.image_download_failure += context.failure_images
         self.target = remove_invalid_characters(self.target)
-        md_path = self.target.replace("/", os.path.sep)
+        md_path = os.path.join(self.target, name)
         with open(md_path + ".md", 'w+', encoding='utf-8') as fp:
             fp.writelines(res)
             fp.flush()
